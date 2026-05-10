@@ -1,0 +1,13 @@
+# local secrets
+.env
+
+# build artifacts
+/jkbms-poll
+/jkbms-poll-*
+*.bin
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
