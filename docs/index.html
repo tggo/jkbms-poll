@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>jkbms-poll · read your LiFePO4 over Bluetooth</title>
+<meta name="description" content="A small Go tool that scans for a JK-BMS over Bluetooth Low Energy, reads one cell-info frame, and writes JSON. For off-grid solar setups where the BMS has no cable — only BLE." />
+<meta name="theme-color" content="#F5EFE3" />
+<meta property="og:title" content="jkbms-poll" />
+<meta property="og:description" content="Read your LiFePO4 like it's wired in. A Linux/BLE poller for JK-BMS, MIT-licensed." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://tggo.github.io/jkbms-poll/" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=Instrument+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+<style>
+/* ===========================================================
+   jkbms-poll — engineering-manual editorial
+   palette = warm cream / deep navy / marigold / moss / rust
+   =========================================================== */
+
+:root {
+  --bg:        #F5EFE3;          /* warm cream paper */
+  --paper:     #FBF7EC;          /* lighter cream for cards */
+  --bg-deep:   #EBE0CB;          /* darker cream — sections */
+  --ink:       #0E2444;          /* deep navy ink */
+  --ink-soft:  #2B3D5C;
+  --ink-mute:  #6E7A8E;
+  --rule:      #C9B996;          /* warm tan rule */
+  --rule-soft: rgba(201,185,150,0.35);
+  --sun:       #E8A33D;          /* marigold */
+  --sun-deep:  #C8842A;
+  --moss:      #5C7C4F;          /* LiFePO4 green */
+  --moss-deep: #3F5836;
+  --rust:      #C75A2A;
+  --maxw:      1200px;
+}
+
+*,*::before,*::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: "Instrument Sans", system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--bg);
+  background-image:
+    linear-gradient(transparent 0, transparent calc(100% - 1px), var(--rule-soft) calc(100% - 1px)) 0 0/100% 32px,
+    linear-gradient(90deg, transparent 0, transparent calc(100% - 1px), var(--rule-soft) calc(100% - 1px)) 0 0/32px 100%;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+body::before {
+  /* faint grain on top of the grid */
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(rgba(14,36,68,0.025) 1px, transparent 1px) 0 0/3px 3px;
+  mix-blend-mode: multiply;
+}
+
+a { color: inherit; text-decoration: none; }
+img, svg { display: block; max-width: 100%; }
+
+.wrap {
+  max-width: var(--maxw);
+  margin-inline: auto;
+  padding-inline: 32px;
+  position: relative;
+  z-index: 2;
+}
+
+/* ---- type system -------------------------------------------- */
+
+h1, h2, h3, .display, .display-l {
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variation-settings: "opsz" 144, "SOFT" 100;
+  color: var(--ink);
+}
+h1 { font-size: clamp(48px, 7vw, 96px); line-height: 0.96; margin: 0; }
+h2 { font-size: clamp(32px, 4.2vw, 56px); line-height: 1.04; margin: 0 0 0.4em; }
+h3 { font-size: clamp(20px, 1.8vw, 26px); line-height: 1.2; margin: 0 0 0.5em; }
+.eyebrow {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+em { color: var(--rust); font-style: italic; font-family: "Fraunces"; font-variation-settings: "opsz" 144, "WONK" 1; }
+code, kbd, pre { font-family: "IBM Plex Mono", monospace; font-size: 0.92em; }
+
+p { margin: 0 0 1em; max-width: 62ch; }
+.lede { font-size: clamp(18px, 1.6vw, 22px); line-height: 1.5; color: var(--ink-soft); max-width: 56ch; }
+
+/* ---- nav ---------------------------------------------------- */
+
+nav.top {
+  position: sticky; top: 0; z-index: 50;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  border-bottom: 1px solid var(--rule-soft);
+}
+nav.top .wrap {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-block: 14px;
+}
+.logo { display: inline-flex; align-items: baseline; gap: 8px; }
+.logo .glyph {
+  width: 28px; height: 28px;
+  display: inline-grid; place-items: center;
+  background: var(--ink); color: var(--sun);
+  font-family: "Fraunces"; font-weight: 700; font-size: 16px;
+  border-radius: 4px;
+  transform: translateY(6px);
+}
+.logo .name { font-family: "Fraunces"; font-weight: 600; font-size: 20px; letter-spacing: -0.01em; }
+.logo .ver { font-family: "IBM Plex Mono"; font-size: 11px; color: var(--ink-mute); margin-left: 6px; }
+nav .links { display: flex; gap: 28px; align-items: center; font-size: 14px; }
+nav .links a { color: var(--ink-soft); transition: color 0.2s; }
+nav .links a:hover { color: var(--rust); }
+.btn-gh {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  background: var(--ink); color: var(--paper);
+  border-radius: 4px;
+  font-size: 13px; font-weight: 500;
+  transition: background 0.2s;
+}
+.btn-gh:hover { background: var(--rust); }
+.btn-gh svg { width: 14px; height: 14px; }
+
+/* ---- hero --------------------------------------------------- */
+
+.hero { padding-block: clamp(60px, 10vh, 130px) 80px; position: relative; overflow: hidden; }
+.hero .grid {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 64px;
+  align-items: center;
+}
+.hero .eyebrow { margin-bottom: 28px; display: flex; align-items: center; gap: 12px; }
+.hero .eyebrow::before {
+  content: ""; width: 32px; height: 1px; background: var(--ink-soft);
+}
+.hero h1 .accent { color: var(--rust); font-style: italic; font-variation-settings: "opsz" 144, "SOFT" 100, "WONK" 1; }
+.hero h1 .underline {
+  background-image: linear-gradient(transparent 60%, var(--sun) 60%, var(--sun) 88%, transparent 88%);
+  background-repeat: no-repeat;
+  padding: 0 4px;
+}
+.hero .lede { margin: 24px 0 36px; }
+.hero .cta-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.btn-primary, .btn-ghost {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 14px 22px;
+  font-family: "Instrument Sans"; font-weight: 500; font-size: 15px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: all 0.22s ease;
+}
+.btn-primary {
+  background: var(--ink); color: var(--paper);
+  box-shadow: 0 1px 0 rgba(14,36,68,0.5), 0 8px 24px -10px rgba(14,36,68,0.4);
+}
+.btn-primary:hover { background: var(--rust); transform: translateY(-1px); }
+.btn-ghost {
+  background: transparent; color: var(--ink); border-color: var(--ink);
+}
+.btn-ghost:hover { background: var(--ink); color: var(--paper); }
+.btn-primary svg, .btn-ghost svg { width: 14px; height: 14px; }
+
+/* sun + battery diagram */
+.hero-art { position: relative; aspect-ratio: 1; max-width: 460px; margin-left: auto; }
+.hero-art .sun {
+  position: absolute; inset: 0;
+  animation: spin 96s linear infinite;
+}
+.hero-art .battery {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -52%);
+  width: 38%;
+}
+.hero-art .ble {
+  position: absolute; right: -8%; bottom: 12%;
+  width: 32%;
+  filter: drop-shadow(0 6px 14px rgba(14,36,68,0.18));
+}
+.hero-art .ble .arc { animation: pulseArc 2.4s ease-in-out infinite; transform-origin: 14px 18px; }
+.hero-art .ble .arc:nth-child(2) { animation-delay: 0.4s; }
+.hero-art .ble .arc:nth-child(3) { animation-delay: 0.8s; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulseArc {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 1; }
+}
+
+/* hero stats / specs strip */
+.specs {
+  margin-top: 80px;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.specs > div {
+  padding: 24px 28px;
+  border-right: 1px solid var(--rule-soft);
+}
+.specs > div:last-child { border-right: none; }
+.specs .k {
+  font-family: "IBM Plex Mono"; font-size: 11px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--ink-mute); margin-bottom: 8px;
+}
+.specs .v {
+  font-family: "Fraunces"; font-weight: 500; font-size: 22px; letter-spacing: -0.01em;
+}
+.specs .v small {
+  font-family: "Instrument Sans"; font-size: 13px; color: var(--ink-mute);
+  font-weight: 400; margin-left: 6px;
+}
+
+/* ---- section scaffolding ----------------------------------- */
+
+section {
+  padding-block: clamp(80px, 12vh, 140px);
+  position: relative;
+}
+section.alt {
+  background: var(--bg-deep);
+  /* slight serrated top edge */
+}
+section.alt::before, section.alt::after {
+  content: "";
+  position: absolute; left: 0; right: 0;
+  height: 1px; background: var(--rule);
+}
+section.alt::before { top: 0; }
+section.alt::after  { bottom: 0; }
+
+.sec-label {
+  display: flex; align-items: baseline; gap: 14px;
+  margin-bottom: 28px;
+  font-family: "IBM Plex Mono"; font-size: 11px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.sec-label::before {
+  content: "§"; font-family: "Fraunces"; font-style: italic; color: var(--rust); font-size: 18px;
+  font-variation-settings: "opsz" 144, "WONK" 1;
+}
+
+/* ---- problem ------------------------------------------------ */
+
+.two-col {
+  display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 80px; align-items: start;
+}
+.two-col h2 { margin-bottom: 24px; }
+.two-col p + p { margin-top: 1em; }
+.callout {
+  margin-top: 32px;
+  padding: 20px 24px;
+  border-left: 3px solid var(--sun);
+  background: var(--paper);
+  font-family: "Fraunces"; font-style: italic;
+  font-size: 19px; line-height: 1.5;
+}
+
+.diagram-card {
+  background: var(--paper);
+  padding: 32px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  position: relative;
+}
+.diagram-card .dc-tag {
+  position: absolute; top: -10px; left: 24px;
+  background: var(--paper);
+  padding: 0 10px;
+  font-family: "IBM Plex Mono"; font-size: 11px;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-mute);
+}
+
+/* ---- how it works ----------------------------------------- */
+
+.flow {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+  margin-top: 16px;
+}
+.flow .node {
+  text-align: center;
+  padding: 24px 16px;
+  position: relative;
+}
+.flow .node:not(:last-child)::after {
+  content: "→";
+  position: absolute; right: -10px; top: 50%;
+  transform: translateY(-50%);
+  font-family: "Fraunces"; font-size: 22px;
+  color: var(--rust);
+}
+.flow .node .icon {
+  width: 64px; height: 64px;
+  margin: 0 auto 12px;
+  display: grid; place-items: center;
+  background: var(--paper); border: 1px solid var(--rule);
+  border-radius: 50%;
+}
+.flow .node .icon svg { width: 32px; height: 32px; color: var(--ink); }
+.flow .node .lbl {
+  font-family: "Fraunces"; font-weight: 600; font-size: 16px;
+  margin-bottom: 4px;
+}
+.flow .node .sub {
+  font-family: "IBM Plex Mono"; font-size: 11px;
+  color: var(--ink-mute); letter-spacing: 0.04em;
+}
+
+/* ---- install ------------------------------------------------ */
+
+.install-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px;
+  margin-top: 36px;
+}
+.code-card {
+  background: var(--ink); color: #DDE7F5;
+  padding: 22px 22px 26px;
+  border-radius: 4px;
+  font-family: "IBM Plex Mono"; font-size: 13px; line-height: 1.55;
+  position: relative;
+  box-shadow: 0 8px 24px -12px rgba(14,36,68,0.45);
+  overflow-x: auto;
+}
+.code-card .cc-tag {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 14px;
+  font-size: 11px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: rgba(221,231,245,0.55);
+}
+.code-card .cc-tag .badge {
+  background: var(--sun); color: var(--ink); padding: 2px 8px; border-radius: 3px;
+  font-weight: 600; letter-spacing: 0.08em;
+}
+.code-card pre { margin: 0; white-space: pre; color: var(--paper); }
+.code-card .c-prompt { color: var(--sun); user-select: none; }
+.code-card .c-cmt    { color: rgba(221,231,245,0.4); }
+.code-card .c-arg    { color: #FFD799; }
+.code-card .c-str    { color: #B6D7A8; }
+.copy-btn {
+  position: absolute; top: 16px; right: 16px;
+  background: rgba(255,255,255,0.06); color: rgba(221,231,245,0.7);
+  border: 1px solid rgba(221,231,245,0.12);
+  padding: 4px 10px; font-family: "IBM Plex Mono"; font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  border-radius: 3px; cursor: pointer; transition: all 0.18s;
+}
+.copy-btn:hover { background: var(--sun); color: var(--ink); border-color: var(--sun); }
+.copy-btn.ok { background: var(--moss); color: var(--paper); border-color: var(--moss); }
+
+/* ---- sample output dashboard ------------------------------- */
+
+.dash {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 48px;
+  align-items: stretch;
+}
+.dash-text { padding-top: 8px; }
+
+.meter {
+  background: var(--paper);
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 1px 0 var(--rule), 0 18px 40px -20px rgba(14,36,68,0.35);
+}
+.meter::before {
+  /* corner rivets */
+  content: "·  ·";
+  position: absolute; top: 8px; right: 14px;
+  letter-spacing: 14px; color: var(--ink-mute); font-size: 22px;
+  line-height: 1;
+}
+.meter-head {
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--rule);
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--bg-deep);
+  font-family: "IBM Plex Mono"; font-size: 11px;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.meter-head .live { display: inline-flex; align-items: center; gap: 6px; }
+.meter-head .live::before {
+  content: ""; width: 8px; height: 8px; background: var(--moss); border-radius: 50%;
+  box-shadow: 0 0 0 0 rgba(92,124,79,0.55);
+  animation: pulseDot 1.6s ease-in-out infinite;
+}
+@keyframes pulseDot {
+  0%   { box-shadow: 0 0 0 0 rgba(92,124,79,0.55); }
+  60%  { box-shadow: 0 0 0 10px rgba(92,124,79,0); }
+  100% { box-shadow: 0 0 0 0 rgba(92,124,79,0); }
+}
+
+.meter-body { padding: 28px 28px 24px; }
+.meter-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  margin-bottom: 24px;
+}
+.meter-stat .k {
+  font-family: "IBM Plex Mono"; font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-mute); margin-bottom: 4px;
+}
+.meter-stat .v {
+  font-family: "Fraunces"; font-weight: 500;
+  font-size: clamp(34px, 4vw, 48px); letter-spacing: -0.02em; line-height: 1;
+  color: var(--ink);
+}
+.meter-stat .v small {
+  font-family: "Instrument Sans"; font-size: 14px; color: var(--ink-mute);
+  margin-left: 6px; font-weight: 400;
+}
+.meter-stat.charging .v { color: var(--moss-deep); }
+
+.cells {
+  margin-top: 4px;
+  border-top: 1px dashed var(--rule);
+  padding-top: 22px;
+}
+.cells-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 14px;
+  font-family: "IBM Plex Mono"; font-size: 11px;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-mute);
+}
+.cells-grid {
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px;
+}
+.cell {
+  background: var(--bg-deep);
+  border: 1px solid var(--rule);
+  padding: 10px 6px 8px;
+  border-radius: 3px;
+  position: relative;
+  text-align: center;
+}
+.cell .num {
+  font-family: "IBM Plex Mono"; font-size: 9px; color: var(--ink-mute);
+  letter-spacing: 0.08em;
+}
+.cell .v {
+  font-family: "Fraunces"; font-weight: 600; font-size: 14px;
+  color: var(--ink); margin-top: 4px;
+}
+.cell .bar {
+  height: 3px; margin-top: 6px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--moss) 0%, var(--moss-deep) 100%);
+  transform-origin: left;
+  animation: cellPulse 5s ease-in-out infinite;
+}
+.cell.min { border-color: var(--rust); }
+.cell.min .v { color: var(--rust); }
+.cell.max { border-color: var(--sun-deep); }
+.cell.max .v { color: var(--sun-deep); }
+@keyframes cellPulse {
+  0%, 100% { transform: scaleX(1); }
+  50%      { transform: scaleX(0.93); }
+}
+.cell:nth-child(2) .bar { animation-delay: 0.2s; }
+.cell:nth-child(3) .bar { animation-delay: 0.4s; }
+.cell:nth-child(4) .bar { animation-delay: 0.6s; }
+.cell:nth-child(5) .bar { animation-delay: 0.8s; }
+.cell:nth-child(6) .bar { animation-delay: 1.0s; }
+.cell:nth-child(7) .bar { animation-delay: 1.2s; }
+.cell:nth-child(8) .bar { animation-delay: 1.4s; }
+
+.meter-foot {
+  padding: 14px 22px; border-top: 1px solid var(--rule);
+  background: var(--bg-deep);
+  font-family: "IBM Plex Mono"; font-size: 11px;
+  color: var(--ink-mute); letter-spacing: 0.04em;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.meter-foot .ts { color: var(--ink); }
+
+/* json snippet */
+.json-card {
+  margin-top: 32px;
+  background: var(--ink);
+  color: #DDE7F5;
+  padding: 22px 24px;
+  border-radius: 4px;
+  font-family: "IBM Plex Mono"; font-size: 12px; line-height: 1.55;
+  overflow-x: auto;
+}
+.json-card .k  { color: #FFD799; }
+.json-card .s  { color: #B6D7A8; }
+.json-card .n  { color: #F5C2A7; }
+.json-card .b  { color: #C8C2F5; }
+.json-card .c  { color: rgba(221,231,245,0.4); }
+
+/* ---- use cases --------------------------------------------- */
+
+.uses { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 36px; }
+.use {
+  padding: 32px 28px 36px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  position: relative;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.use:hover { transform: translateY(-3px); box-shadow: 0 12px 28px -16px rgba(14,36,68,0.3); }
+.use .num {
+  font-family: "Fraunces"; font-style: italic; font-size: 38px; line-height: 1;
+  color: var(--rust); margin-bottom: 14px;
+  font-variation-settings: "opsz" 144, "SOFT" 100, "WONK" 1;
+}
+.use h3 { font-size: 22px; margin-bottom: 10px; }
+.use p { font-size: 15px; color: var(--ink-soft); }
+
+/* ---- footer ------------------------------------------------- */
+
+footer {
+  padding: 64px 0 48px;
+  border-top: 1px solid var(--rule);
+  background: var(--bg);
+}
+footer .grid {
+  display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px;
+  margin-bottom: 48px;
+}
+footer h4 {
+  font-family: "IBM Plex Mono"; font-size: 11px;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--ink-mute); margin: 0 0 14px; font-weight: 500;
+}
+footer ul { list-style: none; padding: 0; margin: 0; }
+footer li { margin-bottom: 8px; font-size: 14px; }
+footer li a:hover { color: var(--rust); }
+footer .colofon p { font-size: 14px; color: var(--ink-soft); }
+footer .meta {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: "IBM Plex Mono"; font-size: 11px;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--ink-mute);
+  border-top: 1px solid var(--rule-soft);
+  padding-top: 24px;
+}
+
+/* ---- entrance animations ----------------------------------- */
+
+.reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.7s ease, transform 0.7s ease; }
+.reveal.in { opacity: 1; transform: none; }
+.hero h1 .ln { display: block; opacity: 0; transform: translateY(18px); animation: lineIn 0.9s 0.1s ease forwards; }
+.hero h1 .ln:nth-child(2) { animation-delay: 0.25s; }
+.hero h1 .ln:nth-child(3) { animation-delay: 0.4s; }
+@keyframes lineIn { to { opacity: 1; transform: none; } }
+
+/* ---- responsive -------------------------------------------- */
+
+@media (max-width: 960px) {
+  .hero .grid, .two-col, .dash, .install-grid { grid-template-columns: 1fr; gap: 40px; }
+  .uses, footer .grid { grid-template-columns: 1fr 1fr; }
+  .specs { grid-template-columns: 1fr 1fr; }
+  .specs > div { border-bottom: 1px solid var(--rule-soft); }
+  .specs > div:nth-child(2n) { border-right: none; }
+  .flow { grid-template-columns: repeat(5, minmax(0, 1fr)); overflow-x: auto; }
+  .hero-art { max-width: 320px; margin-left: 0; }
+  .cells-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 600px) {
+  .wrap { padding-inline: 22px; }
+  nav .links { gap: 16px; }
+  .specs, .uses, footer .grid { grid-template-columns: 1fr; }
+  .specs > div { border-right: none; }
+  .flow { grid-template-columns: repeat(5, 110px); }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ NAV ═══════════════════ -->
+<nav class="top">
+  <div class="wrap">
+    <a href="#" class="logo">
+      <span class="glyph">j</span>
+      <span class="name">jkbms-poll</span>
+      <span class="ver">v0.1.0 · MIT</span>
+    </a>
+    <div class="links">
+      <a href="#how">How it works</a>
+      <a href="#install">Install</a>
+      <a href="#output">Output</a>
+      <a href="#uses">Use cases</a>
+      <a class="btn-gh" href="https://github.com/tggo/jkbms-poll" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        github
+      </a>
+    </div>
+  </div>
+</nav>
+
+<!-- ═══════════════════ HERO ═══════════════════ -->
+<section class="hero">
+  <div class="wrap">
+    <div class="grid">
+      <div>
+        <p class="eyebrow">A small Linux tool · BLE · LiFePO4 · 2026</p>
+        <h1>
+          <span class="ln">Read your battery</span>
+          <span class="ln">like it's <span class="underline">wired in</span> —</span>
+          <span class="ln"><span class="accent">over Bluetooth.</span></span>
+        </h1>
+        <p class="lede">
+          A one-shot Go binary that connects to a JK-BMS over Bluetooth Low Energy,
+          reads one cell-info frame, and writes JSON. Built for off-grid solar
+          setups where the BMS has <em>no cable</em> — only BLE — and you still
+          want graphs in Grafana, sensors in Home&nbsp;Assistant, alerts on Telegram.
+        </p>
+        <div class="cta-row">
+          <a class="btn-primary" href="#install">
+            Install in one line
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 7h10M8 3l4 4-4 4"/></svg>
+          </a>
+          <a class="btn-ghost" href="https://github.com/tggo/jkbms-poll" target="_blank" rel="noopener">
+            View source
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 9l-3-2 3-2M9 5l3 2-3 2"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <div class="hero-art" aria-hidden="true">
+        <!-- sun: concentric rings + rays -->
+        <svg class="sun" viewBox="0 0 200 200">
+          <defs>
+            <radialGradient id="sg" cx="50%" cy="50%" r="50%">
+              <stop offset="0%"   stop-color="#F5C26A" />
+              <stop offset="55%"  stop-color="#E8A33D" />
+              <stop offset="100%" stop-color="#C8842A" />
+            </radialGradient>
+          </defs>
+          <g fill="none" stroke="#0E2444" stroke-width="0.8" opacity="0.4">
+            <circle cx="100" cy="100" r="92"/>
+            <circle cx="100" cy="100" r="78"/>
+            <circle cx="100" cy="100" r="66"/>
+            <circle cx="100" cy="100" r="54"/>
+          </g>
+          <g stroke="#0E2444" stroke-width="0.8" opacity="0.5">
+            <!-- 24 rays -->
+            <g>
+              <line x1="100" y1="6"   x2="100" y2="20"/>
+              <line x1="100" y1="180" x2="100" y2="194"/>
+              <line x1="6"   y1="100" x2="20"  y2="100"/>
+              <line x1="180" y1="100" x2="194" y2="100"/>
+            </g>
+            <g transform="rotate(30 100 100)">
+              <line x1="100" y1="6"   x2="100" y2="20"/>
+              <line x1="100" y1="180" x2="100" y2="194"/>
+              <line x1="6"   y1="100" x2="20"  y2="100"/>
+              <line x1="180" y1="100" x2="194" y2="100"/>
+            </g>
+            <g transform="rotate(60 100 100)">
+              <line x1="100" y1="6"   x2="100" y2="20"/>
+              <line x1="100" y1="180" x2="100" y2="194"/>
+              <line x1="6"   y1="100" x2="20"  y2="100"/>
+              <line x1="180" y1="100" x2="194" y2="100"/>
+            </g>
+          </g>
+          <circle cx="100" cy="100" r="44" fill="url(#sg)" stroke="#0E2444" stroke-width="1.2"/>
+          <circle cx="100" cy="100" r="44" fill="none" stroke="#FBF7EC" stroke-width="0.8" opacity="0.5"/>
+        </svg>
+
+        <!-- battery cell stack on top of sun -->
+        <svg class="battery" viewBox="0 0 80 120">
+          <defs>
+            <linearGradient id="cellG" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stop-color="#5C7C4F"/>
+              <stop offset="100%" stop-color="#3F5836"/>
+            </linearGradient>
+          </defs>
+          <!-- terminals -->
+          <rect x="22" y="0"  width="14" height="6" fill="#0E2444"/>
+          <rect x="44" y="0"  width="14" height="6" fill="#0E2444"/>
+          <!-- 8 cells stacked -->
+          <g>
+            <rect x="6" y="8"   width="68" height="11" rx="1.5" fill="url(#cellG)" stroke="#0E2444" stroke-width="0.8"/>
+            <rect x="6" y="21"  width="68" height="11" rx="1.5" fill="url(#cellG)" stroke="#0E2444" stroke-width="0.8"/>
+            <rect x="6" y="34"  width="68" height="11" rx="1.5" fill="url(#cellG)" stroke="#0E2444" stroke-width="0.8"/>
+            <rect x="6" y="47"  width="68" height="11" rx="1.5" fill="url(#cellG)" stroke="#0E2444" stroke-width="0.8"/>
+            <rect x="6" y="60"  width="68" height="11" rx="1.5" fill="url(#cellG)" stroke="#0E2444" stroke-width="0.8"/>
+            <rect x="6" y="73"  width="68" height="11" rx="1.5" fill="url(#cellG)" stroke="#0E2444" stroke-width="0.8"/>
+            <rect x="6" y="86"  width="68" height="11" rx="1.5" fill="url(#cellG)" stroke="#0E2444" stroke-width="0.8"/>
+            <rect x="6" y="99"  width="68" height="11" rx="1.5" fill="url(#cellG)" stroke="#0E2444" stroke-width="0.8"/>
+          </g>
+          <!-- LFP label -->
+          <text x="40" y="65" text-anchor="middle" font-family="IBM Plex Mono" font-size="6" fill="#FBF7EC" letter-spacing="1">LiFePO4</text>
+          <text x="40" y="73" text-anchor="middle" font-family="IBM Plex Mono" font-size="5" fill="#FBF7EC" letter-spacing="1.2" opacity="0.7">8S · 24V</text>
+        </svg>
+
+        <!-- BLE waves -->
+        <svg class="ble" viewBox="0 0 80 80">
+          <g fill="none" stroke="#0E2444" stroke-width="2" stroke-linecap="round">
+            <path class="arc" d="M14 38 a18 18 0 0 1 18 -18"/>
+            <path class="arc" d="M14 30 a26 26 0 0 1 26 -26"/>
+            <path class="arc" d="M14 22 a34 34 0 0 1 34 -34"/>
+          </g>
+          <circle cx="14" cy="46" r="5" fill="#C75A2A" stroke="#0E2444" stroke-width="1"/>
+          <text x="14" y="68" text-anchor="middle" font-family="IBM Plex Mono" font-size="7" fill="#0E2444" letter-spacing="1">BLE</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- specs strip -->
+    <div class="specs reveal">
+      <div><div class="k">Protocol</div><div class="v">JK02_32S<small>4S–32S firmware</small></div></div>
+      <div><div class="k">Runtime</div><div class="v">~3 MB<small>static Linux binary</small></div></div>
+      <div><div class="k">Output</div><div class="v">JSON<small>30 fields + raw hex</small></div></div>
+      <div><div class="k">Stack</div><div class="v">Go + BlueZ<small>cron-friendly, one-shot</small></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ PROBLEM ═══════════════════ -->
+<section class="alt">
+  <div class="wrap">
+    <div class="sec-label">Section i · The cable that isn't there</div>
+    <div class="two-col reveal">
+      <div>
+        <h2>Some BMS only<br/>speak Bluetooth.</h2>
+        <p>
+          A modern JK-BMS will happily report every cell voltage, the pack current,
+          MOSFET temperature, balance state, and SOC — through its phone app, over
+          BLE. There is no RS485, no CAN, no UART pad you can solder to. The only
+          way in is the Bluetooth radio.
+        </p>
+        <p>
+          That's fine while you're standing next to the battery with the JK app
+          open. It's not fine when the pack lives in a shed, runs an inverter
+          you'd like Home Assistant to know about, and you'd rather not babysit
+          it from your phone.
+        </p>
+        <div class="callout">
+          “The whole point of a battery monitor is that you don't need to be
+          near it.”
+        </div>
+      </div>
+      <div>
+        <div class="diagram-card">
+          <span class="dc-tag">Fig. 1 — JK-B2A8S20P interfaces</span>
+          <svg viewBox="0 0 360 280" style="width:100%;height:auto;">
+            <!-- BMS box -->
+            <rect x="40" y="60" width="280" height="160" rx="6" fill="#FBF7EC" stroke="#0E2444" stroke-width="1.5"/>
+            <text x="180" y="86" text-anchor="middle" font-family="Fraunces" font-size="16" font-weight="600" fill="#0E2444">JK-BMS</text>
+            <text x="180" y="104" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6E7A8E" letter-spacing="1.4">B2A8S20P · 8S · 200A</text>
+            <!-- 8 cell pads -->
+            <g>
+              <rect x="60"  y="130" width="22" height="12" fill="#5C7C4F" stroke="#0E2444" stroke-width="0.8"/>
+              <rect x="86"  y="130" width="22" height="12" fill="#5C7C4F" stroke="#0E2444" stroke-width="0.8"/>
+              <rect x="112" y="130" width="22" height="12" fill="#5C7C4F" stroke="#0E2444" stroke-width="0.8"/>
+              <rect x="138" y="130" width="22" height="12" fill="#5C7C4F" stroke="#0E2444" stroke-width="0.8"/>
+              <rect x="200" y="130" width="22" height="12" fill="#5C7C4F" stroke="#0E2444" stroke-width="0.8"/>
+              <rect x="226" y="130" width="22" height="12" fill="#5C7C4F" stroke="#0E2444" stroke-width="0.8"/>
+              <rect x="252" y="130" width="22" height="12" fill="#5C7C4F" stroke="#0E2444" stroke-width="0.8"/>
+              <rect x="278" y="130" width="22" height="12" fill="#5C7C4F" stroke="#0E2444" stroke-width="0.8"/>
+            </g>
+            <text x="180" y="172" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#6E7A8E" letter-spacing="1.2">8 cell taps</text>
+            <!-- BLE chip -->
+            <circle cx="180" cy="200" r="12" fill="#C75A2A" stroke="#0E2444" stroke-width="1"/>
+            <text x="180" y="204" text-anchor="middle" font-family="IBM Plex Mono" font-size="8" fill="#FBF7EC" font-weight="600">BLE</text>
+            <!-- absent cable callouts -->
+            <g stroke="#C75A2A" stroke-width="1.2" fill="none" stroke-dasharray="3 3">
+              <line x1="40"  y1="230" x2="20"  y2="250"/>
+              <line x1="320" y1="230" x2="340" y2="250"/>
+            </g>
+            <text x="22" y="266" font-family="IBM Plex Mono" font-size="9" fill="#C75A2A" letter-spacing="1">no RS485</text>
+            <text x="288" y="266" font-family="IBM Plex Mono" font-size="9" fill="#C75A2A" letter-spacing="1">no CAN</text>
+            <!-- BLE arc out -->
+            <g fill="none" stroke="#0E2444" stroke-width="1.4" stroke-linecap="round" opacity="0.5">
+              <path d="M180 188 q-22 -22 -56 -8"/>
+              <path d="M180 188 q22 -22 56 -8"/>
+              <path d="M180 184 q-32 -38 -82 -16"/>
+              <path d="M180 184 q32 -38 82 -16"/>
+            </g>
+            <text x="180" y="34" text-anchor="middle" font-family="Fraunces" font-style="italic" font-size="13" fill="#0E2444">— only this gets out —</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ HOW IT WORKS ═══════════════════ -->
+<section id="how">
+  <div class="wrap">
+    <div class="sec-label">Section ii · The shape of the thing</div>
+    <h2 class="reveal">A pipe from BMS to JSON,<br/>nothing more.</h2>
+    <p class="lede reveal" style="margin-bottom:48px;">
+      Run it as a cron job from any Linux host with a Bluetooth radio that's in
+      range of the battery — a Raspberry Pi, an OpenWrt router, a salvaged
+      laptop. It scans, connects, reads one frame, writes a file, exits.
+      Polling and persistence happen elsewhere; the binary stays small,
+      single-purpose, and recovers from whatever cleanly by simply running again.
+    </p>
+
+    <div class="flow reveal">
+      <div class="node">
+        <div class="icon">
+          <!-- battery icon -->
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="6" y="9" width="20" height="16" rx="1.5"/>
+            <rect x="14" y="6" width="4" height="3" fill="currentColor" stroke="none"/>
+            <line x1="11" y1="14" x2="11" y2="20"/>
+            <line x1="16" y1="14" x2="16" y2="20"/>
+            <line x1="21" y1="14" x2="21" y2="20"/>
+          </svg>
+        </div>
+        <div class="lbl">JK-BMS</div>
+        <div class="sub">advertises on FFE0/FFE1</div>
+      </div>
+      <div class="node">
+        <div class="icon">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <path d="M14 22a8 8 0 0 1 8 -8"/>
+            <path d="M11 25a13 13 0 0 1 13 -13"/>
+            <path d="M8 28a18 18 0 0 1 18 -18"/>
+            <circle cx="14" cy="22" r="2.4" fill="currentColor" stroke="none"/>
+          </svg>
+        </div>
+        <div class="lbl">BLE link</div>
+        <div class="sub">~20-byte chunks</div>
+      </div>
+      <div class="node">
+        <div class="icon">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="5" y="9" width="22" height="14" rx="1.5"/>
+            <circle cx="11" cy="16" r="1.4" fill="currentColor" stroke="none"/>
+            <circle cx="16" cy="16" r="1.4" fill="currentColor" stroke="none"/>
+            <circle cx="21" cy="16" r="1.4" fill="currentColor" stroke="none"/>
+            <line x1="9" y1="26" x2="23" y2="26"/>
+          </svg>
+        </div>
+        <div class="lbl">Linux + BlueZ</div>
+        <div class="sub">Pi, router, anything</div>
+      </div>
+      <div class="node">
+        <div class="icon">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M9 6h11l5 5v15a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1z"/>
+            <path d="M20 6v6h5"/>
+            <path d="M12 18l-1.5 2L12 22M16 18l1.5 2L16 22M14 17l-1 6"/>
+          </svg>
+        </div>
+        <div class="lbl">JSON</div>
+        <div class="sub">/tmp/jkbms.json</div>
+      </div>
+      <div class="node">
+        <div class="icon">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M16 4l11 7v14a1 1 0 0 1-1 1h-7v-9h-6v9H7a1 1 0 0 1-1-1V11z"/>
+          </svg>
+        </div>
+        <div class="lbl">HA / Grafana</div>
+        <div class="sub">consume the file</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ INSTALL ═══════════════════ -->
+<section id="install" class="alt">
+  <div class="wrap">
+    <div class="sec-label">Section iii · Install</div>
+    <h2 class="reveal">Three ways in.</h2>
+    <p class="lede reveal">
+      Pick whichever fits the host. The script is the fastest. Source build
+      gives you full control. <code>go install</code> is for Go shops. All three
+      land the same Linux binary; the BLE backend won't cross-compile to macOS
+      or Windows.
+    </p>
+
+    <div class="install-grid reveal">
+
+      <div class="code-card">
+        <div class="cc-tag"><span>Quick install · curl | sh</span><span class="badge">recommended</span></div>
+        <button class="copy-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/tggo/jkbms-poll/main/install.sh | sh">copy</button>
+<pre><span class="c-cmt"># auto-detects amd64 / arm64 / armv7 / armv6,</span>
+<span class="c-cmt"># verifies SHA-256, installs to /usr/local/bin</span>
+<span class="c-prompt">$</span> curl -fsSL <span class="c-str">https://raw.githubusercontent.com/\
+   tggo/jkbms-poll/main/install.sh</span> | sh
+
+<span class="c-cmt"># pin a version, or change install dir</span>
+<span class="c-prompt">$</span> curl -fsSL …/install.sh | sh -s -- <span class="c-arg">v0.1.0</span>
+<span class="c-prompt">$</span> curl -fsSL …/install.sh | <span class="c-arg">INSTALL_DIR</span>=$HOME/bin sh</pre>
+      </div>
+
+      <div class="code-card">
+        <div class="cc-tag"><span>go install</span><span>linux only</span></div>
+        <button class="copy-btn" data-copy="go install github.com/tggo/jkbms-poll@latest">copy</button>
+<pre><span class="c-cmt"># lands in $GOBIN (or $HOME/go/bin)</span>
+<span class="c-prompt">$</span> go install <span class="c-str">github.com/tggo/jkbms-poll</span>@latest
+
+<span class="c-cmt"># cross-build from a Mac for a Pi</span>
+<span class="c-prompt">$</span> <span class="c-arg">GOOS</span>=linux <span class="c-arg">GOARCH</span>=arm64 \
+    go build -o jkbms-poll \
+    <span class="c-str">github.com/tggo/jkbms-poll</span>@latest</pre>
+      </div>
+
+      <div class="code-card">
+        <div class="cc-tag"><span>From source</span><span>git</span></div>
+        <button class="copy-btn" data-copy="git clone https://github.com/tggo/jkbms-poll && cd jkbms-poll && make build">copy</button>
+<pre><span class="c-prompt">$</span> git clone <span class="c-str">https://github.com/\
+   tggo/jkbms-poll</span>
+<span class="c-prompt">$</span> cd jkbms-poll
+<span class="c-prompt">$</span> make test         <span class="c-cmt"># parser unit tests</span>
+<span class="c-prompt">$</span> make build        <span class="c-cmt"># cross-compile arm64</span>
+<span class="c-prompt">$</span> make deploy       <span class="c-cmt"># scp to $DEPLOY_HOST</span></pre>
+      </div>
+
+    </div>
+
+    <div class="reveal" style="margin-top:48px;">
+      <h3 style="margin-bottom:12px;">Then, with the MAC of your BMS:</h3>
+      <div class="code-card" style="max-width:720px;">
+        <div class="cc-tag"><span>One-shot run</span></div>
+        <button class="copy-btn" data-copy="JKBMS_MAC=AA:BB:CC:DD:EE:FF jkbms-poll -log debug">copy</button>
+<pre><span class="c-prompt">$</span> <span class="c-arg">JKBMS_MAC</span>=AA:BB:CC:DD:EE:FF jkbms-poll -log debug
+<span class="c-cmt">level=INFO  msg="scan locked target" rssi=-65</span>
+<span class="c-cmt">level=INFO  msg="connect ok" attempt=1 took=420ms</span>
+<span class="c-cmt">level=INFO  msg="parsed pack" v=53.224 a=31.881 soc=25 t1=13.4</span>
+wrote /tmp/jkbms.json (V=53.224 I=31.881A SOC=25% Δ=0.017V crc_ok=true)</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ OUTPUT ═══════════════════ -->
+<section id="output">
+  <div class="wrap">
+    <div class="sec-label">Section iv · What lands in the file</div>
+
+    <div class="dash">
+      <div class="meter reveal" aria-label="example BMS readout">
+        <div class="meter-head">
+          <span>Pack Alpha · 8S LiFePO4</span>
+          <span class="live">streaming</span>
+        </div>
+        <div class="meter-body">
+          <div class="meter-row">
+            <div class="meter-stat">
+              <div class="k">Pack voltage</div>
+              <div class="v">53.224<small>V</small></div>
+            </div>
+            <div class="meter-stat charging">
+              <div class="k">Current</div>
+              <div class="v">+31.881<small>A · charging</small></div>
+            </div>
+          </div>
+          <div class="meter-row">
+            <div class="meter-stat">
+              <div class="k">SOC</div>
+              <div class="v">25<small>%</small></div>
+            </div>
+            <div class="meter-stat">
+              <div class="k">Power</div>
+              <div class="v">1.70<small>kW</small></div>
+            </div>
+          </div>
+          <div class="meter-row" style="margin-bottom:8px;">
+            <div class="meter-stat">
+              <div class="k">T1 / T2</div>
+              <div class="v" style="font-size:24px;">13.4 / 12.8<small>°C</small></div>
+            </div>
+            <div class="meter-stat">
+              <div class="k">MOS temp</div>
+              <div class="v" style="font-size:24px;">12.9<small>°C</small></div>
+            </div>
+          </div>
+
+          <div class="cells">
+            <div class="cells-head"><span>Cells (mV)</span><span>Δ 17 mV</span></div>
+            <div class="cells-grid">
+              <div class="cell"><div class="num">#1</div><div class="v">3.333</div><div class="bar" style="width:88%"></div></div>
+              <div class="cell"><div class="num">#2</div><div class="v">3.326</div><div class="bar" style="width:80%"></div></div>
+              <div class="cell"><div class="num">#3</div><div class="v">3.326</div><div class="bar" style="width:80%"></div></div>
+              <div class="cell"><div class="num">#4</div><div class="v">3.329</div><div class="bar" style="width:84%"></div></div>
+              <div class="cell"><div class="num">#5</div><div class="v">3.329</div><div class="bar" style="width:84%"></div></div>
+              <div class="cell min"><div class="num">#6</div><div class="v">3.325</div><div class="bar" style="width:76%"></div></div>
+              <div class="cell"><div class="num">#7</div><div class="v">3.323</div><div class="bar" style="width:74%"></div></div>
+              <div class="cell max"><div class="num">#8</div><div class="v">3.337</div><div class="bar" style="width:100%"></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="meter-foot">
+          <span>/tmp/jkbms.json</span>
+          <span class="ts" id="liveTs">just now</span>
+        </div>
+      </div>
+
+      <div class="dash-text reveal">
+        <h2>30 fields,<br/>plus the raw frame.</h2>
+        <p>
+          Every poll writes a flat JSON object — pack-level numbers, per-cell
+          voltages and resistances, balance state, MOSFET state, temperatures,
+          SOC / SOH / capacity / cycle count / total runtime. Plus
+          <code>raw_frame_hex</code>, the full 300-byte frame, so when JK ships
+          firmware that nudges an offset by two bytes you can re-parse the
+          last six months of poll history without a working radio.
+        </p>
+        <p>
+          Below is the literal output of one run, trimmed for readability.
+          The CRC field, the schema version, and a UTC timestamp travel with
+          every record.
+        </p>
+        <div class="json-card">
+<pre>{
+  <span class="k">"timestamp_iso"</span>:    <span class="s">"2026-05-10T00:13:20Z"</span>,
+  <span class="k">"bms_address"</span>:      <span class="s">"AA:BB:CC:DD:EE:FF"</span>,
+  <span class="k">"crc_ok"</span>:           <span class="b">true</span>,
+  <span class="k">"battery_voltage_v"</span>: <span class="n">53.224</span>,
+  <span class="k">"battery_current_a"</span>: <span class="n">31.881</span>,    <span class="c">// +charge / -discharge</span>
+  <span class="k">"soc_percent"</span>:      <span class="n">25</span>,
+  <span class="k">"cell_voltages_v"</span>:  [<span class="n">3.333</span>, <span class="n">3.326</span>, <span class="n">3.326</span>, …],
+  <span class="k">"cell_min_v"</span>:       <span class="n">3.323</span>,
+  <span class="k">"cell_max_v"</span>:       <span class="n">3.337</span>,
+  <span class="k">"cell_delta_v"</span>:     <span class="n">0.017</span>,
+  <span class="k">"power_tube_temp_c"</span>: <span class="n">12.9</span>,
+  <span class="k">"t1_c"</span>: <span class="n">13.4</span>, <span class="k">"t2_c"</span>: <span class="n">12.8</span>,
+  <span class="k">"cycle_count"</span>:      <span class="n">9</span>,
+  <span class="k">"raw_frame_hex"</span>:    <span class="s">"55aaeb9002ac…"</span>
+}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ USE CASES ═══════════════════ -->
+<section id="uses" class="alt">
+  <div class="wrap">
+    <div class="sec-label">Section v · What people do with it</div>
+    <h2 class="reveal">Five places<br/>this earns its keep.</h2>
+
+    <div class="uses reveal">
+      <div class="use">
+        <div class="num">i.</div>
+        <h3>Off-grid solar shed</h3>
+        <p>
+          The pack is in a shed twenty metres from the house. A Pi Zero 2 W
+          on the wall behind the inverter polls every minute, drops JSON in
+          a tmpfs, MQTT publishes it to a broker on the main router. From
+          the kitchen you can see a cell going out of balance before it
+          starts dragging the others down.
+        </p>
+      </div>
+      <div class="use">
+        <div class="num">ii.</div>
+        <h3>Second battery, no spare port</h3>
+        <p>
+          Your inverter only talks to the main pack over RS485. The expansion
+          pack has a JK BMS with BLE only. Drop a tiny Linux box near the
+          second battery, run jkbms-poll on a timer, surface SOC and per-cell
+          voltages in the same Home Assistant dashboard as the inverter.
+        </p>
+      </div>
+      <div class="use">
+        <div class="num">iii.</div>
+        <h3>Long-term cell-drift logging</h3>
+        <p>
+          Cron writes each frame to disk with a timestamp. Six months later
+          you have a per-cell voltage timeline that tells you exactly which
+          cell is ageing fastest, when imbalance starts climbing under load,
+          and whether the balancer is actually doing anything between cycles.
+        </p>
+      </div>
+      <div class="use">
+        <div class="num">iv.</div>
+        <h3>Camper-van &amp; boat batteries</h3>
+        <p>
+          A budget BLE-only BMS in a vehicle is the norm. Run jkbms-poll on
+          the existing Linux router, expose a tiny dashboard over Wi-Fi.
+          When you're 200 km from a hardware store, knowing whether you're
+          chasing a balance issue or a real cell failure is the difference.
+        </p>
+      </div>
+      <div class="use">
+        <div class="num">v.</div>
+        <h3>Telegram alerts on cell faults</h3>
+        <p>
+          One cron, one tiny shell script: read the JSON, if
+          <code>cell_delta_v</code> &gt; 50&nbsp;mV or any
+          <code>error_bitmask</code> bit flips, fire a Telegram message. No
+          cloud account, no app subscription, no proprietary integration —
+          one local file, parsed.
+        </p>
+      </div>
+      <div class="use">
+        <div class="num">vi.</div>
+        <h3>Offline replay &amp; debugging</h3>
+        <p>
+          The full 300-byte frame travels with every record as
+          <code>raw_frame_hex</code>. When JK pushes new firmware that nudges
+          a field offset, re-parse historical logs locally with the next
+          version of jkbms-poll. Your data is never trapped behind a
+          schema change.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════ FOOTER ═══════════════════ -->
+<footer>
+  <div class="wrap">
+    <div class="grid">
+      <div class="colofon">
+        <h4>Colofon</h4>
+        <p style="font-family:Fraunces; font-size:18px; line-height:1.45; color:var(--ink); max-width:38ch;">
+          A small tool with a clear job. Type set in
+          <em>Fraunces</em>, <em>Instrument Sans</em>, and <em>IBM Plex Mono</em>.
+          MIT-licensed, no telemetry, no upsell.
+        </p>
+      </div>
+      <div>
+        <h4>Repo</h4>
+        <ul>
+          <li><a href="https://github.com/tggo/jkbms-poll">github.com/tggo/jkbms-poll</a></li>
+          <li><a href="https://github.com/tggo/jkbms-poll/releases/latest">Latest release</a></li>
+          <li><a href="https://github.com/tggo/jkbms-poll/issues">Issues</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Reads well with</h4>
+        <ul>
+          <li><a href="https://github.com/syssi/esphome-jk-bms">esphome-jk-bms</a></li>
+          <li><a href="https://www.home-assistant.io/">Home Assistant</a></li>
+          <li><a href="https://grafana.com/">Grafana</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Acknowledgements</h4>
+        <ul>
+          <li>JK02_32S layout: <a href="https://github.com/syssi/esphome-jk-bms">syssi</a></li>
+          <li>BLE plumbing: <a href="https://github.com/tinygo-org/bluetooth">tinygo bluetooth</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="meta">
+      <span>jkbms-poll · MIT · v0.1.0</span>
+      <span>made for batteries that won't<br style="display:none;"> talk to anything else</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // copy buttons
+  document.querySelectorAll('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copy);
+        const orig = btn.textContent;
+        btn.textContent = 'copied';
+        btn.classList.add('ok');
+        setTimeout(() => { btn.textContent = orig; btn.classList.remove('ok'); }, 1400);
+      } catch (e) {
+        btn.textContent = 'press ⌘C';
+      }
+    });
+  });
+
+  // intersection-observer reveal
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('in'); });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+
+  // live timestamp on the meter
+  const ts = document.getElementById('liveTs');
+  let s = 0;
+  setInterval(() => {
+    s++;
+    if (s < 10)        ts.textContent = 'just now';
+    else if (s < 60)   ts.textContent = s + 's ago';
+    else               ts.textContent = Math.floor(s/60) + 'm ' + (s%60) + 's ago';
+  }, 1000);
+</script>
+
+</body>
+</html>
