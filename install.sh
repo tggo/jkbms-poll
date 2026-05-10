@@ -62,6 +62,13 @@ fi
 
 chmod +x "$tmp/$asset"
 
+if [ ! -d "$INSTALL_DIR" ]; then
+  if mkdir -p "$INSTALL_DIR" 2>/dev/null; then :; else
+    echo "→ creating $INSTALL_DIR (sudo)"
+    sudo mkdir -p "$INSTALL_DIR"
+  fi
+fi
+
 if [ -w "$INSTALL_DIR" ]; then
   mv "$tmp/$asset" "$INSTALL_DIR/$BIN_NAME"
 else
