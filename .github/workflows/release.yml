@@ -1,0 +1,46 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build all linux arches
+        run: |
+          mkdir -p dist
+          for combo in linux/amd64 linux/arm64 linux/armv7 linux/armv6; do
+            os="${combo%/*}"
+            arch_full="${combo#*/}"
+            case "$arch_full" in
+              armv7) arch=arm; goarm=7 ;;
+              armv6) arch=arm; goarm=6 ;;
+              *)     arch="$arch_full"; goarm= ;;
+            esac
+            out="dist/jkbms-poll-${os}-${arch_full}"
+            GOOS=$os GOARCH=$arch GOARM=$goarm \
+              go build -trimpath -ldflags='-s -w' -o "$out" ./...
+            echo "built $out"
+          done
+          (cd dist && sha256sum jkbms-poll-* > SHA256SUMS)
+          ls -la dist/
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

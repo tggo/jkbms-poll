@@ -19,24 +19,55 @@ having the JSON consumed by Home Assistant, Grafana, scripts, whatever.
 
 [`tinygo.org/x/bluetooth`]: https://github.com/tinygo-org/bluetooth
 
-## Build
+## Install
+
+### Quick install (Linux only)
+
+Auto-detects arch (`amd64` / `arm64` / `armv7` / `armv6`), downloads the
+matching binary from the latest [release], verifies SHA-256, installs to
+`/usr/local/bin/jkbms-poll`:
 
 ```sh
-# native
-go build -o jkbms-poll ./...
-
-# cross-compile for a Pi (arm64)
-GOOS=linux GOARCH=arm64 go build -o jkbms-poll-linux-arm64 ./...
-
-# or
-make build                  # default linux/arm64
-make build GOARCH=amd64     # x86_64 Linux
-make build-host             # whatever you're on
+curl -fsSL https://raw.githubusercontent.com/tggo/jkbms-poll/main/install.sh | sh
 ```
 
-Linux only — the `tinygo.org/x/bluetooth` BlueZ backend uses fields that
-don't exist on the Darwin/Windows backends, so `main.go` is gated with
-`//go:build linux`. Tests are platform-independent.
+Pin a version, or change the install dir:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tggo/jkbms-poll/main/install.sh | sh -s -- v0.1.0
+curl -fsSL https://raw.githubusercontent.com/tggo/jkbms-poll/main/install.sh | INSTALL_DIR=$HOME/bin sh
+```
+
+### `go install` (Linux only)
+
+```sh
+go install github.com/tggo/jkbms-poll@latest
+```
+
+The binary lands in `$GOBIN` (or `$GOPATH/bin`, or `$HOME/go/bin`). Linux
+only — the `tinygo.org/x/bluetooth` BlueZ backend uses fields that don't
+exist on Darwin/Windows, so `main.go` is gated with `//go:build linux`.
+On other platforms `go install` produces nothing useful.
+
+### From source
+
+```sh
+git clone https://github.com/tggo/jkbms-poll
+cd jkbms-poll
+go build -o jkbms-poll ./...                     # native (Linux only)
+GOOS=linux GOARCH=arm64 go build ./...           # cross-compile from a Mac
+make build                                       # default linux/arm64
+make build GOARCH=amd64                          # other arches
+```
+
+### Manual download
+
+Grab a binary from [Releases][release], `chmod +x`, drop it in `$PATH`.
+SHA-256 sums in [`SHA256SUMS`][release].
+
+[release]: https://github.com/tggo/jkbms-poll/releases/latest
+
+Tests are platform-independent: `go test ./...` works anywhere.
 
 ## Run
 

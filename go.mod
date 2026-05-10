@@ -1,4 +1,4 @@
-module jkbms-poll
+module github.com/tggo/jkbms-poll
 
 go 1.25.0
 

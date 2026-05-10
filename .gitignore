@@ -4,6 +4,7 @@
 # build artifacts
 /jkbms-poll
 /jkbms-poll-*
+/dist/
 *.bin
 
 # editor / OS
