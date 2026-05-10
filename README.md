@@ -1,5 +1,7 @@
 # jkbms-poll
 
+**[tggo.github.io/jkbms-poll](https://tggo.github.io/jkbms-poll/)** — project page with the full story, install snippets, and a sample readout.
+
 A small Go program that connects to a JK-BMS over Bluetooth Low Energy, reads
 one cell-info frame, and writes it as JSON to a file. One-shot — connect,
 read, exit.
